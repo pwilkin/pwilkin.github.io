@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speculative decoders in llama.cpp at PR #32218: execution flows</title>
+<style>
+:root{
+  --bg:#fbfbf9;--fg:#1c1d21;--mut:#5a5e68;--card:#ffffff;--line:#8a8f9c;--rule:#d9dbe1;--code:#f0f1f4;--link:#0b57c2;
+  --tgt:#1f6fd0;--tgt-bg:#e8f1fd;
+  --gr:#7a3fc4;--gr-bg:#f2eafc;
+  --host:#a85f00;--host-bg:#fdf1dd;
+  --ver:#1b7d43;--ver-bg:#e4f5ea;
+  --st:#0f7f86;--st-bg:#e0f4f5;
+  --srv:#5c6170;--srv-bg:#eeeff2;
+  --new:#c0267a;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#15161a;--fg:#e7e8ec;--mut:#a3a8b4;--card:#1d1f25;--line:#7c8290;--rule:#33363f;--code:#262931;--link:#8ab8ff;
+    --tgt:#6aa9ff;--tgt-bg:#17273d;
+    --gr:#be93f5;--gr-bg:#2a1f3d;
+    --host:#f0b354;--host-bg:#3a2b12;
+    --ver:#62cf8c;--ver-bg:#14301f;
+    --st:#56cfd6;--st-bg:#12302f;
+    --srv:#b0b5c2;--srv-bg:#282b33;
+    --new:#ff7fc0;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+main{max-width:76rem;margin:0 auto;padding:1.2rem 1rem 4rem}
+h1{font-size:1.65rem;line-height:1.2;margin:.4rem 0 .5rem}
+h2{font-size:1.3rem;margin:2.6rem 0 .5rem;padding-top:.9rem;border-top:2px solid var(--rule)}
+h3{font-size:1.06rem;margin:1.5rem 0 .4rem}
+h4{font-size:.95rem;margin:0 0 .35rem}
+p{margin:.45rem 0}
+a{color:var(--link)}
+code,.src{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:.86em}
+code{background:var(--code);padding:.05em .3em;border-radius:3px;overflow-wrap:anywhere}
+.src{font-size:.74rem;color:var(--mut);display:block;margin-top:.3rem;overflow-wrap:anywhere}
+.src a{color:var(--mut)}
+.lead{color:var(--mut);max-width:60rem}
+.pin{background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:.6rem .8rem;font-size:.86rem;overflow-wrap:anywhere}
+nav.toc{display:flex;flex-wrap:wrap;gap:.3rem .9rem;font-size:.88rem;margin:.9rem 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:.4rem;margin:.6rem 0;padding:0;list-style:none;font-size:.82rem}
+.legend li{padding:.2rem .55rem;border-radius:5px;border-left:5px solid}
+.grid{display:grid;gap:.9rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,19rem),1fr));align-items:start}
+.grid.wide{grid-template-columns:repeat(auto-fit,minmax(min(100%,25rem),1fr))}
+.grid.two{grid-template-columns:repeat(auto-fit,minmax(min(100%,30rem),1fr))}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:.75rem .8rem}
+.card>h3:first-child,.card>h4:first-child{margin-top:0}
+.card .sub{font-size:.82rem;color:var(--mut);margin:0 0 .5rem}
+.flow{display:flex;flex-direction:column}
+.step{border:1px solid var(--rule);border-left:5px solid var(--line);border-radius:6px;padding:.4rem .55rem;font-size:.86rem;background:var(--card)}
+.step p{margin:.15rem 0 0}
+.step b{font-weight:650}
+.tag{display:inline-block;font-size:.66rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:3px;padding:0 .35rem;margin-right:.35rem;vertical-align:.08em;border:1px solid currentColor}
+.t{border-left-color:var(--tgt);background:var(--tgt-bg)} .t .tag{color:var(--tgt)}
+.g{border-left-color:var(--gr);background:var(--gr-bg)} .g .tag{color:var(--gr)}
+.h{border-left-color:var(--host);background:var(--host-bg)} .h .tag{color:var(--host)}
+.v{border-left-color:var(--ver);background:var(--ver-bg)} .v .tag{color:var(--ver)}
+.s{border-left-color:var(--st);background:var(--st-bg)} .s .tag{color:var(--st)}
+.r{border-left-color:var(--srv);background:var(--srv-bg)} .r .tag{color:var(--srv)}
+.arr{position:relative;padding:.2rem 0 .5rem 2.3rem;min-height:1.9rem;font-size:.78rem;color:var(--mut);line-height:1.3}
+.arr::before{content:"";position:absolute;left:1rem;top:0;bottom:.4rem;width:2px;background:var(--line)}
+.arr::after{content:"";position:absolute;left:calc(1rem - 5px);bottom:0;border:6px solid transparent;border-top:8px solid var(--line);border-bottom:0}
+.loop{border:2px dashed var(--line);border-radius:9px;padding:.45rem .45rem .35rem;margin:0}
+.loop-h,.loop-f{font-size:.76rem;font-weight:650;color:var(--mut)}
+.loop-h{margin-bottom:.4rem}
+.loop-f{margin-top:.45rem;padding:.25rem .4rem;border-radius:5px;background:var(--code)}
+.loop-f::before{content:"\21BA\00a0";font-size:1.05rem}
+.split{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,13.5rem),1fr));align-items:start}
+.split>div{border:1px solid var(--rule);border-radius:8px;padding:.4rem}
+.split .cond{font-size:.76rem;font-weight:650;margin:0 0 .35rem;color:var(--mut)}
+.b{display:inline-block;font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-radius:3px;padding:0 .35rem;margin-left:.3rem;vertical-align:.1em}
+.b.new{background:var(--new);color:var(--bg)}
+.b.chg{border:1px solid var(--new);color:var(--new)}
+.b.inh{border:1px solid var(--line);color:var(--mut)}
+.b.cpu{background:var(--ver);color:var(--bg)}
+.b.unv{border:1px dashed var(--host);color:var(--host)}
+.io{font-size:.8rem;margin:.45rem 0 0;padding:0;list-style:none}
+.io li{margin:.15rem 0;padding-left:.1rem}
+.io b{font-weight:650}
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:.82rem}
+th,td{text-align:left;vertical-align:top;padding:.4rem .55rem;border-bottom:1px solid var(--rule)}
+th{background:var(--code);font-weight:650;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.note{border-left:4px solid var(--host);background:var(--host-bg);padding:.5rem .7rem;border-radius:0 6px 6px 0;font-size:.88rem;margin:.7rem 0}
+.ok{border-left-color:var(--ver);background:var(--ver-bg)}
+ul.tight{margin:.3rem 0;padding-left:1.15rem} ul.tight li{margin:.2rem 0}
+.law{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem;background:var(--code);border-radius:6px;padding:.5rem .6rem;overflow-x:auto;white-space:pre;margin:.4rem 0}
+footer{margin-top:3rem;font-size:.8rem;color:var(--mut)}
+@media print{body{background:#fff;color:#000}.card,.step{break-inside:avoid}}
+</style>
+</head>
+<body>
+<main>
+
+<h1>Speculative decoders in llama.cpp at PR #32218: what runs, and what Inkling 2 DSpark needed</h1>
+<p class="lead">A source-based map of every drafting path in <code>common/speculative.cpp</code> at the PR head, the verifier they all share, and a step-by-step trace of the new Inkling 2 DSpark path. Each claim links to the line range it was read from.</p>
+
+<div class="pin">
+<b>Source pin.</b> PR head <code>0a9105de42d2c3e3cbc72cb1f398c743ada4f342</code> ("llama : implement Inkling2 DSpark block drafting", <code>refs/pull/32218/head</code> of ggml-org/llama.cpp), compared with its parent <code>e50c254a22c590c9d2a60db86690d48d42497e2b</code>. The commit changes 17 files, +672 −120. Links marked <i>parent</i> point at the parent commit. All others point at the head.
+<br><b>What kind of evidence this is.</b> The flows come from reading the source. No model ran for this page. Numbers tagged <span class="b cpu">CPU</span> come from earlier private CPU runs of the same source changes. Anything tagged <span class="b unv">unverified</span> has no run behind it.
+</div>
+
+<nav class="toc" aria-label="Sections">
+<a href="#registry">1 Registry</a>
+<a href="#loop">2 Shared verify loop</a>
+<a href="#drafters">3 Model drafters side by side</a>
+<a href="#ngram">4 N-gram modes</a>
+<a href="#inkling">5 Inkling 2 DSpark in detail</a>
+<a href="#delta">6 Inherited, changed, added</a>
+<a href="#why">7 Why the existing paths fell short</a>
+<a href="#evidence">8 Evidence and open questions</a>
+<a href="#index">9 Source index</a>
+</nav>
+
+<h3>How to read the diagrams</h3>
+<ul class="legend">
+<li class="t" style="border-color:var(--tgt)"><b>target</b>: the main model's context</li>
+<li class="g" style="border-color:var(--gr)"><b>draft graph</b>: one graph call on the draft context</li>
+<li class="h" style="border-color:var(--host)"><b>host</b>: C++ in the common driver, between graph calls</li>
+<li class="s" style="border-color:var(--st)"><b>state</b>: data kept between calls (KV cache, rings, RNG)</li>
+<li class="v" style="border-color:var(--ver)"><b>verify</b>: the target's accept or reject decision</li>
+<li class="r" style="border-color:var(--srv)"><b>server</b>: slot logic in the server</li>
+</ul>
+<p style="font-size:.86rem">Arrows run top to bottom and carry the data that moves. A dashed frame is a loop. Its footer says what the loop feeds back into its own next pass. <span class="b new">new</span> marks code the PR adds, <span class="b chg">changed</span> marks existing code the PR edits, <span class="b inh">inherited</span> marks code that runs unchanged.</p>
+
+<!-- ================================================================== -->
+<h2 id="registry">1. Registry: the modes this snapshot supports</h2>
+<p>The type table holds 13 names: <code>none</code> plus 12 drafters. A <code>static_assert</code> pins the count. The PR adds no name. Inkling 2 DSpark reuses <code>draft-dspark</code>, and the loaded draft's weights decide which driver runs. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L75-L89">speculative.cpp:75-89</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3400-L3401">speculative.cpp:3400-3401</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/common.h#L176-L191">common.h:176-191</a></p>
+
+<div class="tw"><table>
+<thead><tr><th>--spec-type</th><th>Driver class</th><th>Needs</th><th>Picked how</th></tr></thead>
+<tbody>
+<tr><td><code>draft-simple</code></td><td><code>…_draft_simple</code></td><td>A separate draft model with a compatible vocabulary</td><td>Named on the command line</td></tr>
+<tr><td><code>draft-eagle3</code></td><td><code>…_draft_eagle3</code></td><td>EAGLE-3 draft GGUF with three target layer taps</td><td>Named</td></tr>
+<tr><td><code>draft-mtp</code></td><td><code>…_draft_mtp</code></td><td>MTP ("nextn") head layers, in the target GGUF or a draft GGUF</td><td>Named, or detected from a <code>nextn.eh_proj</code> tensor</td></tr>
+<tr><td><code>draft-dflash</code></td><td rowspan="4">One of five DFlash family drivers (below)</td><td rowspan="4">A GGUF with <code>general.architecture = dflash</code></td><td>Named, or detected. Runs whichever head the draft has</td></tr>
+<tr><td><code>draft-dflash2</code></td><td rowspan="3">Named. Must match the head of the loaded draft or init throws</td></tr>
+<tr><td><code>draft-dspark</code></td></tr>
+<tr><td><code>draft-lilicorr</code></td></tr>
+<tr><td><code>ngram-simple</code>, <code>ngram-map-k</code>, <code>ngram-map-k4v</code>, <code>ngram-mod</code>, <code>ngram-cache</code></td><td>Four n-gram classes (the two map modes share one)</td><td>No draft model</td><td>Named</td></tr>
+</tbody></table></div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3041-L3074">speculative.cpp:3041-3074</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3403-L3417">speculative.cpp:3403-3417</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3386-L3392">speculative.cpp:3386-3392</a></p>
+
+<div class="grid two" style="margin-top:.9rem">
+<div class="card">
+<h4>DFlash family dispatch</h4>
+<p class="sub">The four family names share one draft context, so a run may enable only one of them. <code>llama_model_dflash_variant()</code> reads the loaded draft and picks the driver.</p>
+<div class="flow">
+<div class="step h"><span class="tag">host</span><b>Loader classifies the draft by its tensors</b><p><code>markov_w1</code> → DSpark · <code>selector_hidden</code> → DFlash2 · LiliCorr metadata key → LiliCorr · none → DFlash</p></div>
+<div class="arr">variant</div>
+<div class="step h"><span class="tag">host</span><b>Extra check</b> <span class="b new">new</span><p>A <code>dspark_hidden_out.weight</code> tensor sets <code>dspark_context_rank</code>, and the public variant becomes <code>DSPARK_INKLING2</code> (enum value 4).</p></div>
+<div class="arr">variant → driver</div>
+<div class="split">
+<div><p class="cond">DFLASH</p><div class="step h"><span class="tag">host</span><code>…_draft_dflash</code></div></div>
+<div><p class="cond">DFLASH2</p><div class="step h"><span class="tag">host</span><code>…_draft_dflash2</code></div></div>
+<div><p class="cond">DSPARK</p><div class="step h"><span class="tag">host</span><code>…_draft_dspark</code> (stock)</div></div>
+<div><p class="cond">DSPARK_INKLING2</p><div class="step h"><span class="tag">host</span><code>…_inkling2_dspark</code> <span class="b new">new</span></div></div>
+<div><p class="cond">LILICORR</p><div class="step h"><span class="tag">host</span><code>…_draft_lilicorr</code></div></div>
+</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L39-L49">dflash.cpp:39-49</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L55-L67">dflash.cpp:55-67</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-model.cpp#L3682-L3684">llama-model.cpp:3682-3684</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/include/llama.h#L232-L239">llama.h:232-239</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3438-L3482">speculative.cpp:3438-3482</a></p>
+</div>
+<div class="card">
+<h4>Order when several types are enabled</h4>
+<p class="sub">Each round, the drafters run in a fixed priority order. The first one that returns tokens for a slot wins that slot for the round.</p>
+<div class="flow">
+<div class="step h"><span class="tag">host</span>ngram-simple → ngram-map-k → ngram-map-k4v → ngram-mod → ngram-cache</div>
+<div class="arr">slots still without a draft</div>
+<div class="step h"><span class="tag">host</span>draft-simple → draft-eagle3 → draft-mtp → one DFlash family driver</div>
+<div class="arr">per slot: tokens, and optionally one q row per token</div>
+<div class="step r"><span class="tag">server</span>Verification (section 2). <code>accept()</code> later reaches the winning driver with <code>is_other = false</code> and the rest with <code>true</code>.</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3403-L3417">speculative.cpp:3403-3417</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3630-L3718">speculative.cpp:3630-3718</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3720-L3754">speculative.cpp:3720-3754</a></p>
+<p style="font-size:.84rem">Stock DSpark also has three other draft backbones behind the same name: DeepSeek-V4, DeepSeek-V4.1 and Mistral Large 4. Each has its own graph and reuses the stock Markov head. Inkling 2 requires the base backbone. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L577-L602">dflash.cpp:577-602</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L95-L100">dflash.cpp:95-100</a></p>
+</div>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="loop">2. The shared loop: draft, verify, accept, roll back</h2>
+<p>Every drafter plugs into the same server loop. The drafter only proposes. The target decides. The PR changes one thing here: how the rejection branch looks up q.</p>
+
+<div class="grid two">
+<div class="card">
+<h4>One round for one slot</h4>
+<div class="flow">
+<div class="step r"><span class="tag">server</span><b>Fill the draft request</b><p><code>id_last</code> = the token the target just sampled, <code>pos0</code> = its position, <code>n_max</code>, request temperature and seed. <code>result_q</code> points at a buffer only when the request temperature is above 0.</p></div>
+<div class="arr">request per slot</div>
+<div class="step h"><span class="tag">host</span><b><code>common_speculative_draft()</code></b><p>Runs the drafters in priority order. Output: draft token IDs, and for some drafters one probability row q per token.</p></div>
+<div class="arr">draft IDs (+ q rows)</div>
+<div class="step s"><span class="tag">state</span>The server removes the draft context's own block positions again, and takes checkpoints when a context cannot delete a suffix.</div>
+<div class="arr">batch [id_last, d1 … dn]</div>
+<div class="step t"><span class="tag">target</span><b>One target decode over the whole draft</b><p>Gives the target's distribution at n + 1 positions.</p></div>
+<div class="arr">the same batch, plus the target's fresh activations</div>
+<div class="step h"><span class="tag">host</span><b><code>common_speculative_process()</code></b><p>Every drafter sees each target batch, prompt chunks included. This is where EAGLE-3, MTP and the DFlash family pull target features.</p></div>
+<div class="arr">target distributions at n + 1 positions</div>
+<div class="step v"><span class="tag">verify</span><b>Pick a verifier</b><p>Rejection sampling runs only when temperature &gt; 0 <i>and</i> the drafter filled q. Otherwise token matching runs.</p></div>
+<div class="arr">accepted = k draft tokens + 1 token from the target</div>
+<div class="step r"><span class="tag">server</span><b>Commit and roll back</b><p>Keeps the k accepted tokens, makes the target's token the next <code>id_last</code>, and deletes positions after it from memory. Contexts that cannot delete a suffix restore the checkpoint and replay the accepted prefix.</p></div>
+<div class="arr">k</div>
+<div class="step h"><span class="tag">host</span><code>common_speculative_accept(k)</code> lets a drafter rebase its carried state.</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L3860-L3872">server-context.cpp:3860-3872</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L580-L583">server-context.cpp:580-583</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L3880-L3885">server-context.cpp:3880-3885</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L3897-L3905">server-context.cpp:3897-3905</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4708-L4723">server-context.cpp:4708-4723</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4896-L4911">server-context.cpp:4896-4911</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4915-L4949">server-context.cpp:4915-4949</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4956-L4990">server-context.cpp:4956-4990</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L71-L94">server-context.cpp:71-94</a></p>
+</div>
+
+<div class="card">
+<h4>The two verifiers</h4>
+<div class="split">
+<div>
+<p class="cond">Token matching: no q available, or temperature 0</p>
+<div class="flow">
+<div class="loop">
+<div class="loop-h">for each draft position i</div>
+<div class="step v"><span class="tag">verify</span>The target sampler draws its own token <code>t</code> from p<sub>i</sub> and accepts it.</div>
+<div class="arr">t</div>
+<div class="step v"><span class="tag">verify</span><code>t == d_i</code> and not an early end-of-generation token → continue. Otherwise stop.</div>
+<div class="loop-f">continues while the target's own sample equals the draft</div>
+</div>
+<div class="arr">end of the loop</div>
+<div class="step v"><span class="tag">verify</span><b>Last token.</b> On a mismatch, <code>t</code> itself is the last token: it replaces the draft token. If every draft token matched, the target samples one more at position n: the bonus token.</div>
+</div>
+</div>
+<div>
+<p class="cond">Rejection sampling: q rows present and temperature &gt; 0</p>
+<div class="flow">
+<div class="loop">
+<div class="loop-h">for each draft position i</div>
+<div class="step v"><span class="tag">verify</span>The target sampler leaves p<sub>i</sub> in its candidate list. A grammar, if active, zeroes forbidden tokens and p is rescaled.</div>
+<div class="arr">p(d<sub>i</sub>), q(d<sub>i</sub>)</div>
+<div class="step v"><span class="tag">verify</span>Accept <code>d_i</code> if q &gt; 0 and (p ≥ q or u &lt; p/q), with u from the target sampler's own RNG.</div>
+<div class="loop-f">continues while draft tokens are accepted</div>
+</div>
+<div class="arr">first rejection</div>
+<div class="step v"><span class="tag">verify</span><b>Replacement.</b> Draw from max(p − q, 0), renormalised. If that residual is empty, keep the target's own sample. Then stop. <span class="b chg">changed</span><p>For each target candidate the code needs q at that ID. If q has exactly one entry per vocabulary ID, in ID order, it now indexes q directly. Any other layout keeps the old linear search.</p></div>
+<div class="arr">no rejection at all</div>
+<div class="step v"><span class="tag">verify</span><b>Bonus token.</b> One more ordinary target sample at position n.</div>
+</div>
+</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/sampling.cpp#L698-L730">sampling.cpp:698-730</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/sampling.cpp#L741-L853">sampling.cpp:741-853</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/sampling.cpp#L809-L823">sampling.cpp:809-823</a> · parent lookup <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/common/sampling.cpp#L809-L818">sampling.cpp:809-818 (parent)</a></p>
+<p style="font-size:.84rem">Two more branches exist. Synthetic acceptance replaces verification for benchmarks. After a checkpoint restore, a replay re-accepts the tokens the target already approved instead of testing them again. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4896-L4911">server-context.cpp:4896-4911</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L71-L94">server-context.cpp:71-94</a></p>
+</div>
+</div>
+
+<div class="tw" style="margin-top:.9rem"><table>
+<thead><tr><th>Drafter</th><th>Fills q?</th><th>Verifier it can reach</th></tr></thead>
+<tbody>
+<tr><td>draft-simple, draft-mtp</td><td>Only with <code>--spec-draft-sampling probabilistic</code>. Each row holds the draft sampler's candidates after top-k 10.</td><td>Rejection if temperature &gt; 0, else matching</td></tr>
+<tr><td>draft-dflash2</td><td>Only when probabilistic. Each row holds the selector's k candidates.</td><td>Rejection if temperature &gt; 0, else matching</td></tr>
+<tr><td>draft-dspark with an Inkling 2 head</td><td>Only when probabilistic and temperature &gt; 0. Each row covers the full vocabulary in ID order.</td><td>Rejection, else matching</td></tr>
+<tr><td>draft-eagle3, draft-dflash, stock draft-dspark, draft-lilicorr, all n-gram modes</td><td>Never</td><td>Matching only</td></tr>
+</tbody></table></div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L355-L477">speculative.cpp:355-477</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2305-L2469">speculative.cpp:2305-2469</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1752-L1878">speculative.cpp:1752-1878</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1575-L1593">speculative.cpp:1575-1593</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/common.h#L351-L353">common.h:351-353</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/arg.cpp#L4277-L4296">arg.cpp:4277-4296</a></p>
+
+<!-- ================================================================== -->
+<h2 id="drafters">3. Model drafters side by side</h2>
+<p>All eight cards use the same two rows: what happens when the target decodes a batch (<i>on target batch</i>), and what happens when the server asks for a draft (<i>on draft</i>). Section 5 expands the last card.</p>
+
+<div class="grid wide">
+
+<!-- draft-simple -->
+<div class="card">
+<h3>draft-simple</h3>
+<p class="sub">A second, smaller language model. It never reads target activations.</p>
+<div class="flow">
+<div class="step h"><span class="tag">host</span><b>On target batch:</b> copy the same tokens into the draft context. Image embeddings pass through when widths match; otherwise the draft gets zero rows.</div>
+<div class="arr">tokens</div>
+<div class="step g"><span class="tag">draft graph</span>DECODE. Only the last row is an output.</div>
+<div class="arr">draft KV</div>
+<div class="step s"><span class="tag">state</span>The draft model's own KV cache, one sequence per slot.</div>
+<div class="arr">on draft: id_last at pos0</div>
+<div class="loop">
+<div class="loop-h">loop on the host, one DECODE per drafted token, all drafting slots in one batch</div>
+<div class="step g"><span class="tag">draft graph</span>DECODE one token per slot → logits.</div>
+<div class="arr">logits to the host</div>
+<div class="step h"><span class="tag">host</span>Host sampler chain. Greedy mode: top-k 10, take the top candidate. Probabilistic mode: top-k 10, then the request temperature and a seeded draw; the drawn token is kept and the candidate list becomes the q row. Stops when the top probability is under <code>p_min</code>.</div>
+<div class="loop-f">feeds back the chosen token ID. The next DECODE conditions on it through the draft KV.</div>
+</div>
+</div>
+<ul class="io">
+<li><b>Recurrence:</b> a full draft-model pass per token, driven from the host.</li>
+<li><b>Conditioning:</b> in probabilistic mode each q row is conditioned on the tokens actually drawn before it, because the drawn token is the one decoded next. The sampler keeps its RNG stream across rounds and resets once per request.</li>
+<li><b>Host sees:</b> IDs and probabilities after every step.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L111-L174">speculative.cpp:111-174</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L309-L353">speculative.cpp:309-353</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L355-L477">speculative.cpp:355-477</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L33-L73">speculative.cpp:33-73</a></p>
+</div>
+
+<!-- EAGLE-3 -->
+<div class="card">
+<h3>draft-eagle3</h3>
+<p class="sub">A small draft decoder fed with fused target hidden states.</p>
+<div class="flow">
+<div class="step t"><span class="tag">target</span><b>On target batch:</b> three layer taps per token, copied to the host. A tap equal to the layer count reads the target's final hidden row.</div>
+<div class="arr">3 × n_embd features per token</div>
+<div class="step g"><span class="tag">draft graph</span>ENCODE: fuse the three taps into one row g per token. No KV.</div>
+<div class="arr">g rows back to the host</div>
+<div class="step g"><span class="tag">draft graph</span>DECODE pairs (token<sub>P+1</sub>, g<sub>P</sub>) at position P to fill the draft KV. The last position waits for its next token.</div>
+<div class="arr">deferred pair (g, position) per slot</div>
+<div class="step s"><span class="tag">state</span>Draft KV, plus the deferred g row. <code>accept(k)</code> moves the deferred row to the last position the target kept.</div>
+<div class="arr">on draft: (id_last, deferred g)</div>
+<div class="loop">
+<div class="loop-h">loop on the host, one DECODE per drafted token</div>
+<div class="step g"><span class="tag">draft graph</span>DECODE → logits and the decoder's pre-norm hidden row.</div>
+<div class="arr">top-k 10 candidates, hidden row</div>
+<div class="step h"><span class="tag">host</span>Take the top candidate. Stop under <code>p_min</code>.</div>
+<div class="loop-f">feeds back the token ID and the draft's own hidden row, which stands in for the next g.</div>
+</div>
+</div>
+<ul class="io">
+<li><b>Backend options:</b> with <code>--spec-draft-backend-sampling</code> (the default) a top-k 10 chain is registered on the draft context so the top-k runs in the graph; if registration fails the host sampler does it. A reduced draft vocabulary is mapped back with a <code>d2t</code> table in the graph.</li>
+<li><b>No q, no probabilistic mode:</b> matching only.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L485-L518">speculative.cpp:485-518</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L588-L617">speculative.cpp:588-617</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L657-L800">speculative.cpp:657-800</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L802-L923">speculative.cpp:802-923</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L925-L940">speculative.cpp:925-940</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/eagle3.cpp#L121-L146">eagle3.cpp:121-146</a></p>
+</div>
+
+<!-- MTP -->
+<div class="card">
+<h3>draft-mtp</h3>
+<p class="sub">Extra trained head layers that predict further ahead from the target's last hidden row. Three modes, fixed at init.</p>
+<div class="flow">
+<div class="step t"><span class="tag">target</span><b>On target batch:</b> the final hidden row h of every token.</div>
+<div class="arr">pairs (token<sub>k</sub>, h<sub>k−1</sub>)</div>
+<div class="step g"><span class="tag">draft graph</span>Catch-up DECODE on the MTP context to fill the head's KV. Skipped when the head shares the target's KV.</div>
+<div class="arr">last h row per slot</div>
+<div class="step s"><span class="tag">state</span>The pending h row. <code>accept(k)</code> swaps it for row k of the verify batch.</div>
+<div class="arr">on draft: (id_last, pending h)</div>
+<div class="loop">
+<div class="loop-h">loop on the host, one DECODE per drafted token</div>
+<div class="step g"><span class="tag">draft graph</span>DECODE → logits and the head's hidden row.</div>
+<div class="arr">candidates, hidden row</div>
+<div class="step h"><span class="tag">host</span>Same choice rule as draft-simple: top candidate, or a seeded draw plus a q row in probabilistic mode.</div>
+<div class="loop-f">feeds back the token ID and the head's hidden row</div>
+</div>
+</div>
+<div class="tw" style="margin-top:.5rem"><table>
+<thead><tr><th>Mode</th><th>What differs</th></tr></thead>
+<tbody>
+<tr><td>Single head</td><td>The KV grows by one token per step. Target h rows can stay on the device: the catch-up reads them by row index and only the pending row is copied to the host.</td></tr>
+<tr><td>Chained heads</td><td>One trained head per step, so the draft length is capped at the head count. Each step clears the draft region, selects head i, and decodes the whole prefix again.</td></tr>
+<tr><td>Shared memory</td><td>The head attends over the target's own KV. No catch-up decode. Every draft token uses position pos0.</td></tr>
+</tbody></table></div>
+<ul class="io"><li><b>Backend options:</b> the same optional top-k 10 backend chain as EAGLE-3. The context is created with the MTP context type, from the target model itself when no draft file is given.</li></ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1999-L2005">speculative.cpp:1999-2005</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2064-L2116">speculative.cpp:2064-2116</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2158-L2303">speculative.cpp:2158-2303</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2305-L2469">speculative.cpp:2305-2469</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2471-L2491">speculative.cpp:2471-2491</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3306-L3350">speculative.cpp:3306-3350</a></p>
+</div>
+
+<!-- DFlash -->
+<div class="card">
+<h3>draft-dflash <span style="font-weight:400">(plain DFlash)</span></h3>
+<p class="sub">A block drafter. One forward pass fills a block of mask tokens.</p>
+<div class="flow">
+<div class="step t"><span class="tag">target</span><b>On target batch:</b> the residual entering each layer listed in the draft's <code>target_layers</code>. Rows stay in a device buffer, or are copied to the host.</div>
+<div class="arr">taps, at the target's positions</div>
+<div class="step g"><span class="tag">draft graph</span>DECODE with a feature batch: one <code>fc</code> projection and norm, then each draft layer's own K and V projections write straight into the draft KV.</div>
+<div class="arr">K/V at target positions</div>
+<div class="step s"><span class="tag">state</span>Draft KV holding projected target features. No token ever decoded here stays in it.</div>
+<div class="arr">on draft: [id_last, mask × n_max] for every slot, one batch</div>
+<div class="step g"><span class="tag">draft graph</span>One DECODE. Non-causal block attention over the injected context and the block. Logits for every row.</div>
+<div class="arr">top-k 10 candidates per row</div>
+<div class="step h"><span class="tag">host</span>Per mask row, take the top candidate. Stop at the first row under <code>p_min</code>.</div>
+</div>
+<ul class="io">
+<li><b>Recurrence:</b> none. Rows influence each other only through attention inside the one pass.</li>
+<li><b>Proposals:</b> independent picks. The token chosen at row i does not change the logits at row i + 1.</li>
+<li><b>Host sees:</b> all rows at once, after one graph call.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1016-L1035">speculative.cpp:1016-1035</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1077-L1144">speculative.cpp:1077-1144</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1212-L1316">speculative.cpp:1212-1316</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1318-L1398">speculative.cpp:1318-1398</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L329-L400">dflash.cpp:329-400</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L564-L575">dflash.cpp:564-575</a></p>
+</div>
+
+<!-- DFlash2 -->
+<div class="card">
+<h3>draft-dflash2</h3>
+<p class="sub">DFlash plus a selector that scores pairs of neighbouring candidates.</p>
+<div class="flow">
+<div class="step s"><span class="tag">state</span>Feature taps and KV injection as plain DFlash.</div>
+<div class="arr">on draft: [id_last, mask × n_max], one batch for all slots</div>
+<div class="step g"><span class="tag">draft graph</span>One DECODE. Block logits → top-k candidates per row → a k × k table of transition scores between each row's candidates and the previous row's. Packed into the hidden-row output.</div>
+<div class="arr">per row: k candidate IDs + k × k scores</div>
+<div class="loop">
+<div class="loop-h">loop on the host over block rows, no graph call</div>
+<div class="step h"><span class="tag">host</span>Read the score row that belongs to the candidate chosen at the previous row. Greedy: take its maximum. Probabilistic: softmax(scores / temperature) over the k candidates, then one seeded draw; the k probabilities become the q row.</div>
+<div class="loop-f">feeds back the index of the chosen candidate, which selects the next score row</div>
+</div>
+</div>
+<ul class="io">
+<li><b>Recurrence:</b> on the host, over a table the graph computed once.</li>
+<li><b>Proposals:</b> coupled to the previous choice, but only among k candidates fixed before any choice was made.</li>
+<li><b>Conditional q:</b> each q row is the probability of a candidate given the candidate actually chosen before it. It has k entries, not the vocabulary. Rejection sampling handles the sparse support: tokens outside q keep all of p.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1720-L1741">speculative.cpp:1720-1741</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1752-L1878">speculative.cpp:1752-1878</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash2.cpp#L118-L224">dflash2.cpp:118-224</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/sampling.cpp#L741-L853">sampling.cpp:741-853</a></p>
+</div>
+
+<!-- stock DSpark -->
+<div class="card">
+<h3>draft-dspark <span style="font-weight:400">(stock head)</span></h3>
+<p class="sub">DFlash plus a Markov head that biases each row's logits by the previous token, inside the graph.</p>
+<div class="flow">
+<div class="step s"><span class="tag">state</span>Feature taps and KV injection as plain DFlash, or the DeepSeek and Mistral variants' own injection.</div>
+<div class="arr">on draft: [id_last, mask …] of n_max rows (one more for bonus-anchor exports), one batch for all slots</div>
+<div class="step g"><span class="tag">draft graph</span>Backbone → base logits for every row.</div>
+<div class="arr">base logits, hidden rows</div>
+<div class="loop">
+<div class="loop-h">chain unrolled inside the same graph, one link per row</div>
+<div class="step g"><span class="tag">draft graph</span>Embed the previous token with <code>W1</code>. Optional gated recurrent state. Project to the vocabulary with <code>W2</code>, add to the base logits. Optional confidence value.</div>
+<div class="loop-f">feeds back <code>argmax</code> of the biased logits. The source marks this with a TODO: sampling never reaches the chain.</div>
+</div>
+<div class="arr">biased logits per row (+ confidence)</div>
+<div class="step h"><span class="tag">host</span>Per row, take the top of top-k 10. Cut the draft where confidence drops under <code>p_min</code>.</div>
+</div>
+<ul class="io">
+<li><b>Recurrence:</b> in the graph, greedy only.</li>
+<li><b>Proposals:</b> coupled to the previous <i>argmax</i>. The host also picks a maximum. Exact ties can depend on the ranking order.</li>
+<li><b>No q:</b> matching only.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1406-L1441">speculative.cpp:1406-1441</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1443-L1528">speculative.cpp:1443-1528</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L283-L414">dspark.cpp:283-414</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L341-L342">dspark.cpp:341-342</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L80-L97">dspark.cpp:80-97</a></p>
+</div>
+
+<!-- LiliCorr -->
+<div class="card">
+<h3>draft-lilicorr</h3>
+<p class="sub">DFlash plus a small transformer that rescores the block's candidates.</p>
+<div class="flow">
+<div class="step g"><span class="tag">draft graph</span><b>On target batch:</b> inject as DFlash, host copies only. The injection also returns the projected feature rows.</div>
+<div class="arr">projected feature per position</div>
+<div class="step s"><span class="tag">state</span>A ring of block_size + 1 rows per slot, each tagged with its position.</div>
+<div class="arr">on draft: a full block; every row carries the feature at pos0 − 1 as side state</div>
+<div class="step g"><span class="tag">draft graph</span>One DECODE. Logits → top-k candidates → the scorer reads candidates and the anchor feature → candidate IDs and a k × k score table per row.</div>
+<div class="arr">per row: k IDs + k × k scores</div>
+<div class="loop">
+<div class="loop-h">loop on the host over block rows, no graph call</div>
+<div class="step h"><span class="tag">host</span>Take the best score in the row selected by the previous choice. Stop under <code>p_min</code>.</div>
+<div class="loop-f">feeds back the index of the chosen candidate</div>
+</div>
+</div>
+<ul class="io">
+<li><b>Greedy only, no q:</b> matching only.</li>
+<li><b>Why it matters here:</b> its position-tagged ring is the piece the PR lifts into the DFlash base class for Inkling 2.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1883-L1901">speculative.cpp:1883-1901</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1903-L1982">speculative.cpp:1903-1982</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/lilicorr.cpp#L244-L280">lilicorr.cpp:244-280</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1146-L1177">speculative.cpp:1146-1177</a></p>
+</div>
+
+<!-- Inkling summary -->
+<div class="card" style="border-color:var(--new)">
+<h3>draft-dspark <span style="font-weight:400">(Inkling 2 head)</span> <span class="b new">new</span></h3>
+<p class="sub">Same label as stock DSpark, different driver. The full trace is in section 5.</p>
+<div class="flow">
+<div class="step t"><span class="tag">target</span><b>On target batch:</b> four tap rows per token, the last one being the normalised final row.</div>
+<div class="arr">4 × n_embd features, at the target's positions</div>
+<div class="step g"><span class="tag">draft graph</span>DECODE with a feature batch: three learned mixtures write K/V for the three draft layers. A fourth mixture returns one feature row per position.</div>
+<div class="arr">fourth-mixture row per position</div>
+<div class="step s"><span class="tag">state</span>Draft KV, the position-tagged ring, and one RNG per slot.</div>
+<div class="arr">on draft: always 8 rows [id_last, mask × 7], one batch per slot, with the ring row at pos0 − 1 and the lottery tickets as side state</div>
+<div class="step g"><span class="tag">draft graph</span>Backbone over the full block → hidden rows.</div>
+<div class="arr">hidden rows 1 … D</div>
+<div class="loop">
+<div class="loop-h">chain unrolled inside the same graph, one link per requested proposal</div>
+<div class="step g"><span class="tag">draft graph</span>Recurrent step → logits over the valid vocabulary → select an ID: lowest-ID argmax, or a ticket draw that also emits q.</div>
+<div class="loop-f">feeds back the ID actually selected, and the recurrent state</div>
+</div>
+<div class="arr">D token IDs (+ D full q rows), read after one wait</div>
+<div class="step h"><span class="tag">host</span>Validate, hand IDs and q to the verifier, commit the RNG.</div>
+</div>
+<ul class="io">
+<li><b>Recurrence:</b> in the graph, like stock DSpark, but fed by the sampled token.</li>
+<li><b>Host sees:</b> only IDs, and q in sampled mode. No logits come back.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1531-L1553">speculative.cpp:1531-1553</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1575-L1593">speculative.cpp:1575-1593</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L478-L527">dspark.cpp:478-527</a></p>
+</div>
+
+</div>
+
+<h3>The same eight, as one table</h3>
+<div class="tw"><table>
+<thead><tr><th>Drafter</th><th>Where the recurrence runs</th><th>What feeds back</th><th>How proposals relate</th><th>What it takes from the target</th><th>When the host sees IDs and probabilities</th></tr></thead>
+<tbody>
+<tr><td>draft-simple</td><td>Host loop, one draft-model DECODE per token</td><td>Chosen token ID (via draft KV)</td><td>Fully autoregressive</td><td>Tokens only</td><td>Every step: ID and candidates</td></tr>
+<tr><td>draft-eagle3</td><td>Host loop, one DECODE per token</td><td>Top token ID + draft hidden row</td><td>Autoregressive, greedy</td><td>3 layer taps, fused by an encoder</td><td>Every step: candidates</td></tr>
+<tr><td>draft-mtp</td><td>Host loop, one DECODE per token</td><td>Chosen token ID + head hidden row</td><td>Autoregressive</td><td>Final hidden row; optionally the target KV itself</td><td>Every step: ID and candidates</td></tr>
+<tr><td>draft-dflash</td><td>None</td><td>Nothing</td><td>Independent picks from one pass</td><td>Layer taps → draft KV</td><td>Once: candidates for all rows</td></tr>
+<tr><td>draft-dflash2</td><td>Host walk over a precomputed table</td><td>Index of chosen candidate</td><td>Coupled within top-k</td><td>Layer taps → draft KV</td><td>Once: candidates and scores for all rows</td></tr>
+<tr><td>draft-dspark, stock</td><td>Inside the graph</td><td>argmax ID (+ state)</td><td>Coupled to the previous argmax</td><td>Layer taps → draft KV</td><td>Once: biased logits for all rows</td></tr>
+<tr><td>draft-lilicorr</td><td>Host walk over a precomputed table</td><td>Index of chosen candidate</td><td>Coupled within top-k</td><td>Layer taps → draft KV, plus one anchor feature</td><td>Once: candidates and scores</td></tr>
+<tr><td>draft-dspark, Inkling 2</td><td>Inside the graph</td><td>The selected ID (argmax or draw) + state</td><td>Coupled to the previous selected token, over the whole vocabulary</td><td>4 taps → draft KV, plus one anchor feature; the target's embedding table, token norm and output matrix</td><td>Once: final IDs, and full q rows when sampling</td></tr>
+</tbody></table></div>
+
+<!-- ================================================================== -->
+<h2 id="ngram">4. The five n-gram modes</h2>
+<p>None of them runs a model. Each looks up the slot's recent tokens in some store and proposes what followed last time. None produces q, so the target always checks them by token matching. Their <code>process()</code> hooks are empty.</p>
+
+<div class="card">
+<div class="flow">
+<div class="step r"><span class="tag">server</span><b>Shared input:</b> the slot's token history and <code>id_last</code>.</div>
+<div class="arr">key = the last n tokens, ending in id_last</div>
+<div class="split">
+<div>
+<p class="cond">ngram-simple</p>
+<div class="step h"><span class="tag">host</span><b>Uses:</b> the history itself, no stored state.<p>Scans backwards for the latest earlier copy of the key and proposes the m tokens after it.</p></div>
+</div>
+<div>
+<p class="cond">ngram-map-k</p>
+<div class="step s"><span class="tag">state</span><b>Uses:</b> a per-slot list of keys seen in the history, found through a hash index of 2<sup>18</sup> entries.<p>Proposes the m tokens after the matched key. Keys only, no value statistics.</p></div>
+</div>
+<div>
+<p class="cond">ngram-map-k4v</p>
+<div class="step s"><span class="tag">state</span><b>Uses:</b> the same key list, plus up to 4 distinct continuations per key with counts.<p>Needs <code>min_hits</code> key hits. Proposes the most frequent continuation unless the others together are too close. <code>accept(k)</code> records how much of it the target took.</p></div>
+</div>
+<div>
+<p class="cond">ngram-mod</p>
+<div class="step s"><span class="tag">state</span><b>Uses:</b> one hash table of 4 M entries shared by all slots: hash of n tokens → next token.<p>Proposes token by token, chaining lookups up to <code>n_max</code>. Resets when a quarter full, or after five rounds in a row with under 25% accepted.</p></div>
+</div>
+<div>
+<p class="cond">ngram-cache</p>
+<div class="step s"><span class="tag">state</span><b>Uses:</b> three count tables for n-grams of length 1 to 4: the current context, a dynamic file from earlier runs, and a static corpus file.<p>Proposes up to 8 tokens, each needing enough count and share. The static table checks the others. The context counts are merged into the dynamic file at exit.</p></div>
+</div>
+</div>
+<div class="arr">draft token IDs, no q</div>
+<div class="step v"><span class="tag">verify</span>Token matching (section 2).</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2518-L2561">speculative.cpp:2518-2561</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/ngram-map.cpp#L49-L94">ngram-map.cpp:49-94</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2563-L2615">speculative.cpp:2563-2615</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/ngram-map.cpp#L382-L399">ngram-map.cpp:382-399</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/ngram-map.cpp#L401-L500">ngram-map.cpp:401-500</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2617-L2790">speculative.cpp:2617-2790</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2792-L2938">speculative.cpp:2792-2938</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/ngram-cache.cpp#L59-L63">ngram-cache.cpp:59-63</a></p>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="inkling">5. Inkling 2 DSpark in detail</h2>
+<p>The numbers below describe the installed Inkling 2 Mini sidecar: taps [5, 23, 41, 48], three draft layers, block size 8, hidden width 2304, recurrent rank 256, 201024 padded vocabulary rows, 200058 tokenizer IDs, sliding window 1024 with pattern local/full/local. The source reads every one of them from the GGUF. The loader checks block size 8, a positive logit softcap, ascending taps and a sliding window, along with the weight dimensions and vocabulary sizes. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L55-L67">dflash.cpp:55-67</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L95-L100">dflash.cpp:95-100</a> <span class="src" style="display:inline">Sidecar inventory: private log <code>pr32218-dflash-redesign/model-shapes-and-cdf.log</code>.</span></p>
+
+<h3>5a. Capture four tap rows in the target <span class="b chg">changed</span></h3>
+<div class="grid two">
+<div class="card">
+<div class="flow">
+<div class="step h"><span class="tag">host</span><b>Driver init</b> asks the target to expose the input of "layers" 5, 23, 41 and 48. It also checks that the last tap equals the target's layer count. <span class="b inh">inherited</span></div>
+<div class="arr">tap list</div>
+<div class="step t"><span class="tag">target</span><b>Looped Inkling 2 graph</b> <span class="b new">new</span><p>A counter numbers layers in the order they execute. Before each executed layer the graph records the residual under that visit number. Layers inside the loop body run more than once, so visit number, physical weight index and KV layer index can all differ. Taps 5, 23 and 41 are visit numbers, counted from 0.</p></div>
+<div class="arr">residual entering visits 5, 23, 41</div>
+<div class="step t"><span class="tag">target</span><b>Final row</b> <span class="b new">new</span><p>Index 48 equals the target's logical layer count, which includes repeat visits in the loop. The graph stores there the block mix after the output RMS norm, before the output-row gather. So tap 48 is the normalised final hidden row, for every token in the batch.</p></div>
+<div class="arr">4 rows × 2304 per token</div>
+<div class="step h"><span class="tag">host</span><b>Transport</b> <span class="b inh">inherited</span><p>Either the rows stay in the target's device buffer and the injection batch names them by row index, or the driver copies them to the host and concatenates them in tap order.</p></div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1077-L1144">speculative.cpp:1077-1144</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1531-L1553">speculative.cpp:1531-1553</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2-loop.cpp#L83-L116">inkling2-loop.cpp:83-116</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2-loop.cpp#L24-L30">inkling2-loop.cpp:24-30</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2.cpp#L423-L427">inkling2.cpp:423-427</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2.cpp#L455-L459">inkling2.cpp:455-459</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1212-L1316">speculative.cpp:1212-1316</a></p>
+</div>
+<div class="card">
+<h4>Why this needed a change</h4>
+<p>Before the PR the Inkling 2 target graphs filled no tap slots at all, so DFlash feature extraction had nothing to read. The fix points existing result slots at tensors the target already computes. It adds feature extraction and transport to the existing target computation.</p>
+<p>The visit counter matters because the looped model shares weights between passes. A tap named by physical layer would be ambiguous: the same layer runs several times with different inputs.</p>
+<p>The non-looped Inkling 2 graph gets the same two assignments. <span class="b unv">unverified</span> No run covered it.</p>
+</div>
+</div>
+
+<h3>5b. Inject: three K/V mixtures and one anchor feature</h3>
+<div class="grid two">
+<div class="card">
+<div class="flow">
+<div class="step g"><span class="tag">draft graph</span><b>DECODE with a feature batch</b>, at the target's own positions, in chunks of the draft ubatch. Plain DFlash would apply <code>fc</code> and a norm here. With the Inkling head the raw 4-tap rows pass through. <span class="b chg">changed</span></div>
+<div class="arr">4 tap rows per token</div>
+<div class="step g"><span class="tag">draft graph</span><b>Mixture table</b> <span class="b new">new</span><p><code>dspark_fuse</code> has 4 rows of 4 weights: one row per draft layer and one for the head. A mixture = softmax of one weight row → weighted sum of the four taps → its own RMS norm.</p></div>
+<div class="arr">mixtures 0, 1, 2</div>
+<div class="step g"><span class="tag">draft graph</span><b>Per draft layer</b><p>Separate context weights <code>attn_k_ctx</code>, <code>attn_v_ctx</code> and a separate K norm project the mixture <span class="b new">new</span>. RoPE on K, optional rotation for quantised caches, routing to the sliding or the dense sub-cache, and the cache write are the existing code <span class="b inh">inherited</span>.</p></div>
+<div class="arr">K/V written at target positions</div>
+<div class="step s"><span class="tag">state</span><b>Draft KV</b>: the context that block attention reads later.</div>
+<div class="arr">mixture 3, normalised by <code>dspark_norm</code></div>
+<div class="step g"><span class="tag">draft graph</span>Returned through the existing hidden-row output, one row per injected position. <span class="b new">new</span></div>
+<div class="arr">one 2304-wide row per position, copied to the host</div>
+<div class="step s"><span class="tag">state</span><b>Position-tagged ring</b> <span class="b chg">changed</span><p>9 rows per slot (block size + 1). Row index = position mod 9, and each row stores the position it holds. Only the last 9 positions of a batch are kept.</p></div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L250-L266">dflash.cpp:250-266</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L205-L212">dspark.cpp:205-212</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L181-L203">dspark.cpp:181-203</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L329-L400">dflash.cpp:329-400</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L391-L395">dflash.cpp:391-395</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1146-L1177">speculative.cpp:1146-1177</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1212-L1316">speculative.cpp:1212-1316</a> · parent ring <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/common/speculative.cpp#L1665-L1680">speculative.cpp:1665-1680 (parent)</a> <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/common/speculative.cpp#L1143-L1145">speculative.cpp:1143-1145 (parent)</a></p>
+</div>
+<div class="card">
+<h4>Why a position-tagged ring</h4>
+<p>The head needs the fourth-mixture row of the <i>last committed</i> token. The most recent injection is a verify batch, and its tail can hold rows for draft tokens the target then rejected. "The newest row" would be wrong after any rejection.</p>
+<p>The driver reads the row for position <code>pos0 − 1</code> and checks the stored tag. If the tag does not match, the slot does not draft this round. That row is always the last row the target accepted, because <code>pos0</code> is where the target's own replacement or bonus token will go.</p>
+<p>LiliCorr already had exactly this ring as private members. The PR moves it into the DFlash base class, lets any head opt in by allocating it, and also fills it after device-row injection, which LiliCorr never used. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1575-L1593">speculative.cpp:1575-1593</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1883-L1901">speculative.cpp:1883-1901</a></p>
+</div>
+</div>
+
+<h3>5c. The block: always eight rows, non-causal</h3>
+<div class="grid two">
+<div class="card">
+<div class="flow">
+<div class="step h"><span class="tag">host</span><b>Per drafting slot, its own batch</b> <span class="b new">new</span><p>Row 0 = <code>id_last</code> at pos0, rows 1 to 7 = mask token. Always 8 rows, even when D &lt; 7 proposals are wanted. Rows 1 … D are flagged as outputs. The slot is skipped if the block would not fit the context, or if the ring has no row for pos0 − 1.</p></div>
+<div class="arr">8 token IDs + side state (5d)</div>
+<div class="step g"><span class="tag">draft graph</span><b>Embeddings</b> <span class="b new">new</span><p>Row 0: the <i>target's</i> embedding of <code>id_last</code>, RMS-normalised and scaled by the target's token norm. Rows 1 to 7: one learned mask vector from the sidecar, repeated. The mask token IDs are not looked up.</p></div>
+<div class="arr">1 anchor row + 7 identical mask rows</div>
+<div class="step g"><span class="tag">draft graph</span><b>Three layers</b> <span class="b inh">inherited</span><p>The stock DFlash layer code: RMS norms, grouped-query attention, SwiGLU, residuals. Attention is non-causal: every block row sees every other block row.</p></div>
+<div class="arr">attention keys per layer</div>
+<div class="step s"><span class="tag">state</span><b>What a row can attend to</b><p>Layers 0 and 2 (local): injected context from position a − 1024 up to the anchor a, plus the whole block. All 8 rows use the anchor's window, not their own. Layer 1 (full): all injected context plus the block.</p></div>
+<div class="arr">final RMS norm</div>
+<div class="step g"><span class="tag">draft graph</span><b>8 hidden rows.</b> The head reads rows 1 … D.</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1611-L1621">speculative.cpp:1611-1621</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L214-L234">dspark.cpp:214-234</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L414-L524">dflash.cpp:414-524</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L95-L100">dflash.cpp:95-100</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-kv-cache.cpp#L1750-L1754">llama-kv-cache.cpp:1750-1754</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-kv-cache.cpp#L1845-L1852">llama-kv-cache.cpp:1845-1852</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-hparams.h#L564-L576">llama-hparams.h:564-576</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2223-L2241">llama-context.cpp:2223-2241</a></p>
+</div>
+<div class="card">
+<h4>Why the full block, one slot per call</h4>
+<p>The sidecar was trained on one anchor plus seven masks under non-causal attention. Every row can change every other row, so a shorter block is a different input. Stock DSpark sends only as many rows as it wants drafts. The Inkling driver always sends eight and reads fewer.</p>
+<p>The window is anchor-relative: the existing <code>block_uniform</code> switch gives every block row the first row's mask. The loader adds 1 to the stored window of 1024 because the mask excludes distances greater than <i>or equal to</i> its size, and the trained window covers the anchor plus 1024 positions before it.</p>
+<p>The context decode refuses anything but this shape when the first row carries side state: exactly 8 rows, one sequence, token rows only, outputs on rows 1 … D. One slot per call keeps that invariant simple and costs some multi-slot batching.</p>
+</div>
+</div>
+
+<h3>5d. The recurrent head: one link per requested proposal</h3>
+<div class="grid two">
+<div class="card">
+<div class="flow">
+<div class="step h"><span class="tag">host</span><b>Side state on the batch rows</b> <span class="b new">new</span><p>One vector of 3 × 2304 floats: [ ring row for pos0 − 1 | temperature | D tickets | zeros ]. A temperature of 0 means greedy. The graph reads it from the first row.</p></div>
+<div class="arr">context feature, temperature, tickets</div>
+<div class="step g"><span class="tag">draft graph</span><b>Start:</b> previous ID = <code>id_last</code> (row 0 of the batch). State = 256 zeros.</div>
+<div class="arr">prev ID, state</div>
+<div class="loop">
+<div class="loop-h">unrolled in the graph for i = 1 … D (D links are built, not a runtime loop)</div>
+<div class="step g"><span class="tag">draft graph</span><b>Look up</b> row <code>prev</code> of <code>markov_w1</code> (256 wide). The table has all 201024 padded rows.</div>
+<div class="arr">[ state 256 | W1[prev] 256 | hidden row i 2304 | context 2304 ] = 5120</div>
+<div class="step g"><span class="tag">draft graph</span><b>Recurrent step</b> <span class="b chg">changed</span><p>One projection to 3 × 256. Gate = sigmoid, candidate = tanh, new state = candidate + gate × (state − candidate), latent = tanh. This is the stock DSpark step, now a shared function.</p></div>
+<div class="arr">latent 256</div>
+<div class="step g"><span class="tag">draft graph</span><b>Correction in hidden space</b> <span class="b new">new</span><p><code>dspark_hidden_out</code> maps the latent to a 2304-wide correction.</p></div>
+<div class="arr">hidden row i, correction</div>
+<div class="step g"><span class="tag">draft graph</span><b>Borrowed output head</b> <span class="b new">new</span><p>The <i>target's</i> output matrix is applied to the hidden row and to the correction separately, at F32 accumulation, and the two are added. That gives 201024 logits. The graph keeps the first 200058, then applies the softcap cap × tanh(logit / cap).</p></div>
+<div class="arr">200058 logits</div>
+<div class="step g"><span class="tag">draft graph</span><b>Select an ID</b> (5e). The ID is a graph tensor.</div>
+<div class="loop-f">feeds back into link i + 1: the selected ID, as the next <code>W1</code> lookup, and the updated 256-wide state. Hidden rows do not change.</div>
+</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1594-L1610">speculative.cpp:1594-1610</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L462-L476">dspark.cpp:462-476</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L478-L527">dspark.cpp:478-527</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L236-L248">dspark.cpp:236-248</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L250-L265">dspark.cpp:250-265</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L280-L290">dflash.cpp:280-290</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L181-L203">dspark.cpp:181-203</a></p>
+</div>
+<div class="card">
+<h4>201024 rows in, 200058 IDs out</h4>
+<p>The target's embedding and output matrices are padded to 201024 rows; the tokenizer has 200058 IDs. The loader checks that the draft's tokenizer size equals the unpadded size. The block graph checks that the target's output matrix has the padded row count.</p>
+<ul class="tight">
+<li><code>markov_w1</code> is loaded at the padded width, as stored. Lookups only ever use valid IDs.</li>
+<li>The output projection runs over all padded rows, then a view keeps rows 0 … 200057. So no padded row can be selected, and q has exactly one entry per tokenizer ID.</li>
+</ul>
+<h4 style="margin-top:.8rem">Rank from the weight shape</h4>
+<p>The recurrent rank is read from the first dimension of <code>markov_w1.weight</code>. No metadata key is consulted. The same test that detects the head (<code>dspark_hidden_out.weight</code> exists) triggers it.</p>
+<h4 style="margin-top:.8rem">Why two output products</h4>
+<p>logits = Out·hidden + Out·correction equals Out·(hidden + correction) in exact arithmetic. The graph keeps them apart. The predecessor report gives the reason: summing first would change what the quantised output matrix multiplies. <span class="b unv">unverified</span> No comparison of the two orders was run for this page.</p>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L181-L203">dspark.cpp:181-203</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L214-L234">dspark.cpp:214-234</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L55-L67">dflash.cpp:55-67</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L250-L265">dspark.cpp:250-265</a></p>
+</div>
+</div>
+
+<h3>5e. Selecting the token: greedy argmax, or a 24-bit ticket draw</h3>
+<div class="grid two">
+<div class="card">
+<div class="split">
+<div>
+<p class="cond">Greedy: temperature slot is 0</p>
+<div class="flow">
+<div class="step g"><span class="tag">draft graph</span><b>Lowest-ID argmax</b> <span class="b new">new</span><p>Finds the peak value, marks every ID below it, and takes the lowest ID among the rest. Ties therefore break the way the host sampler breaks them, whatever the backend's own argmax does.</p></div>
+<div class="arr">1 ID per link</div>
+<div class="step g"><span class="tag">draft graph</span>No q tensor exists in this graph. The host buffer holds D integers.</div>
+<div class="arr">no q</div>
+<div class="step v"><span class="tag">verify</span>Token matching.</div>
+</div>
+</div>
+<div>
+<p class="cond">Sampled: probabilistic mode, request temperature &gt; 0</p>
+<div class="flow">
+<div class="step g"><span class="tag">draft graph</span><b>Softmax</b> of (logits − peak) / temperature. A row with any non-finite logit is replaced by all zeros, which gives a uniform row.</div>
+<div class="arr">p over 200058 IDs</div>
+<div class="step g"><span class="tag">draft graph</span><b>Split into integers</b> <span class="b new">new</span><p>p × 2<sup>23</sup> is split into three integer digits (radix 64 for this vocabulary). Three prefix sums are recombined.</p></div>
+<div class="arr">prefix sums</div>
+<div class="step g"><span class="tag">draft graph</span><b>Endpoints on a 2<sup>24</sup> grid</b><p>Divide by the last prefix value, scale to 2<sup>24</sup>, round, clamp. The first endpoint is 0 and the last is 2<sup>24</sup> by construction.</p></div>
+<div class="arr">interval [lower<sub>id</sub>, upper<sub>id</sub>) per ID</div>
+<div class="step g"><span class="tag">draft graph</span><b>Draw:</b> the selected ID is the one whose interval holds the ticket. <b>q:</b> (upper − lower) / 2<sup>24</sup> for every ID.</div>
+<div class="arr">1 ID + 200058 q values per link</div>
+<div class="step v"><span class="tag">verify</span>Rejection sampling.</div>
+</div>
+</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L416-L423">dspark.cpp:416-423</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L425-L460">dspark.cpp:425-460</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L478-L527">dspark.cpp:478-527</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1575-L1593">speculative.cpp:1575-1593</a></p>
+</div>
+<div class="card">
+<h4>The law that is reported is the law that is sampled</h4>
+<div class="law">ticket  = integer in [0, 2^24), uniform
+id      = the ID whose interval contains ticket
+q[id]   = interval width / 2^24
+=&gt; P(id is drawn) = q[id], exactly</div>
+<p>Rejection sampling is exact only if q is the true probability of the draft's draw. Here both come from the same integer endpoints, so a correctly executed graph reports the probabilities it used.</p>
+<p>q <i>approximates</i> the temperature softmax; it is not equal to it. Widths are whole numbers of tickets, so a token with a very small probability can get zero tickets and q = 0. It can then never be drafted, and the verifier's residual gives it all of p. Under rejection sampling, changing q can change acceptance and seeded output sequences while preserving the target distribution.</p>
+<p><b>Why integers.</b> A float32 running sum over 200058 values depends on the order a backend adds them, and loses the tail next to a large head. Each of the three digit sums stays inside the range where float32 represents integers exactly, so any summation order gives the same counts.</p>
+<p><span class="b cpu">CPU</span> A stress row with 0.995 on the first ID and the rest spread evenly gave q<sub>0</sub> = 0.9949985743, q<sub>last</sub> = 0, total variation 0.0029 from the ideal softmax, and 83899 IDs with non-zero mass.</p>
+<p><span class="b unv">unverified</span> The endpoint rounding still passes through a backend softmax and a division. Endpoints may differ between backends; the equality of draw and q does not depend on that, but no accelerator run has checked either.</p>
+</div>
+</div>
+
+<h3>5f. Draw state, one graph call, one wait</h3>
+<div class="grid two">
+<div class="card">
+<div class="flow">
+<div class="step s"><span class="tag">state</span><b>One MT19937 per slot</b> <span class="b new">new</span><p>Re-seeded when the request seed changes; <code>begin()</code> forces that at each request start. Seed = request seed XOR a fixed constant, or a random device for the default seed.</p></div>
+<div class="arr">a working copy of the generator</div>
+<div class="step h"><span class="tag">host</span><b>D tickets</b> = the high 24 bits of D generator outputs, stored as floats next to the temperature. Greedy slots draw nothing.</div>
+<div class="arr">side state</div>
+<div class="step g"><span class="tag">draft graph</span><b>One DECODE per active slot</b>: backbone, D head links and D selections in the same graph. It is the existing decode entry point and graph type. Selection nodes are assigned to the draft's output device where that backend supports the op.</div>
+<div class="arr">ID tensors (+ q tensors), copied asynchronously</div>
+<div class="step s"><span class="tag">state</span><b>Existing sampled-output buffers</b> <span class="b chg">changed</span><p>The context reserves the sampled-ID buffer, and the probability buffer only when sampling. It reserves no logits buffer for this batch.</p></div>
+<div class="arr">first getter call</div>
+<div class="step h"><span class="tag">host</span><b>One readiness wait</b> <span class="b new">new</span><p>The first sampled-output getter synchronises once and sets a flag. The remaining getters reuse that wait. A complete block uses D getters in greedy mode and 2D in sampled mode.</p></div>
+<div class="arr">D IDs, D dense q rows</div>
+<div class="step h"><span class="tag">host</span><b>Validate, then commit</b><p>Each ID must be in range. When sampling, every q value must be ≥ 0, the row must sum to exactly 1, and q at the drawn ID must be positive. A bad block is dropped whole and the RNG is not advanced. A good sampled block commits the working generator, before the target verifies anything.</p></div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1555-L1563">speculative.cpp:1555-1563</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1594-L1610">speculative.cpp:1594-1610</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1611-L1621">speculative.cpp:1611-1621</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L487-L524">dspark.cpp:487-524</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2642-L2802">llama-context.cpp:2642-2802</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2544-L2552">llama-context.cpp:2544-2552</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L1150-L1155">llama-context.cpp:1150-1155</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L4798-L4808">llama-context.cpp:4798-4808</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1622-L1654">speculative.cpp:1622-1654</a></p>
+</div>
+<div class="card">
+<h4>What this fixes in the accounting</h4>
+<ul class="tight">
+<li><b>One draw per emitted proposal.</b> Warm-up graphs, greedy slots, skipped slots and the unrequested tail of the block consume nothing.</li>
+<li><b>A rejected suffix still spent its draws.</b> The generator is committed when the block is read. Rolling back target tokens does not roll back the draft RNG, so the next round uses fresh tickets.</li>
+<li><b>Same request, same stream.</b> The per-request reset makes two identical seeded requests on one slot draft the same tokens.</li>
+<li><b>The row q is dense and ID-ordered.</b> The driver builds each verifier row as entry j = { id j, probability q<sub>j</sub> }. That is the layout the new direct lookup in the verifier tests for.</li>
+</ul>
+<h4 style="margin-top:.8rem">Readback size</h4>
+<p>Greedy returns D 32-bit integers. Sampled adds D rows of 200058 floats, about 0.76 MiB each, which the driver then expands into token-data rows for the verifier.</p>
+</div>
+</div>
+
+<h3>5g. The older host path, kept as an opt-out</h3>
+<div class="grid two">
+<div class="card">
+<p class="sub">Runs when <code>--no-spec-draft-backend-sampling</code> is set, or when the vocabulary or D is outside the in-graph limits.</p>
+<div class="flow">
+<div class="step g"><span class="tag">draft graph</span><b>Block DECODE without side state.</b> The graph stops after the backbone and returns all hidden rows through the hidden-row output.</div>
+<div class="arr">hidden rows 1 … D copied to the host</div>
+<div class="loop">
+<div class="loop-h">loop on the host, one ENCODE per proposal step, one row per active slot</div>
+<div class="step h"><span class="tag">host</span>Pack side state [ state | hidden row i | ring row ], 3 × 2304 floats, with the previous token as the batch token.</div>
+<div class="arr">token ID + side state</div>
+<div class="step g"><span class="tag">draft graph</span><b>ENCODE</b>: a head-only graph, the same head step as 5d. It uses no KV memory, so the block's cache is untouched. Returns logits and the new state padded to 2304.</div>
+<div class="arr">200058 logits, state</div>
+<div class="step h"><span class="tag">host</span>Host sampler: greedy chain, or temperature and a seeded draw with no top-k. The full candidate list becomes the q row.</div>
+<div class="loop-f">feeds back the drawn token ID and the state, both through the host</div>
+</div>
+</div>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1575-L1593">speculative.cpp:1575-1593</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1655-L1662">speculative.cpp:1655-1662</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1664-L1716">speculative.cpp:1664-1716</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L267-L281">dspark.cpp:267-281</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L577-L602">dflash.cpp:577-602</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-batch.cpp#L1214-L1224">llama-batch.cpp:1214-1224</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L529-L552">dspark.cpp:529-552</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L33-L73">speculative.cpp:33-73</a></p>
+</div>
+<div class="card">
+<h4>How the two paths differ</h4>
+<div class="tw"><table>
+<thead><tr><th></th><th>In-graph (default)</th><th>Host ENCODE (opt-out)</th></tr></thead>
+<tbody>
+<tr><td>Graph calls per block</td><td>1</td><td>1 + D</td></tr>
+<tr><td>Waits for the backend</td><td>1</td><td>1 + D</td></tr>
+<tr><td>Crosses to the host per step</td><td>nothing</td><td>logits, state, token</td></tr>
+<tr><td>Proposal law</td><td>24-bit ticket grid</td><td>host sampler's float softmax</td></tr>
+<tr><td>RNG</td><td>per-slot MT19937 in the driver</td><td>host sampler chain's own</td></tr>
+</tbody></table></div>
+<p>The two laws differ, so a fixed seed gives different sampled streams on the two paths. Greedy proposals agree: <span class="b cpu">CPU</span> all 30 greedy proposals across 11 blocks matched between the paths, rejected ones included.</p>
+<p>The <code>spec_retune</code> helper gained a <code>top_k</code> argument for this path. Its default of 10 leaves draft-simple and MTP as they were. Inkling passes 0, which drops the top-k stage so q covers the vocabulary.</p>
+</div>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="delta">6. What is inherited, what changed, what is new</h2>
+<div class="tw"><table>
+<thead><tr><th>Piece</th><th>Status</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>Server loop, checkpoints, rollback, token-match verifier</td><td><span class="b inh">inherited</span></td><td>No server file changes.</td></tr>
+<tr><td>Rejection verifier</td><td><span class="b chg">changed</span></td><td>Direct q lookup when q is dense and ID-ordered. The acceptance rule, residual and RNG use are the same. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/sampling.cpp#L809-L823">sampling.cpp:809-823</a></td></tr>
+<tr><td>CLI names, auto-detection, type table</td><td><span class="b inh">inherited</span></td><td>No new name or flag. One new value in the public DFlash variant enum. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/include/llama.h#L232-L239">llama.h:232-239</a></td></tr>
+<tr><td>DFlash driver base: tap setup, device or host transport, per-slot injection</td><td><span class="b inh">inherited</span></td><td>The Inkling driver subclasses it and uses its <code>process()</code> as is. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1212-L1316">speculative.cpp:1212-1316</a></td></tr>
+<tr><td>Position-tagged feature ring</td><td><span class="b chg">changed</span></td><td>Moved from LiliCorr into the base class. Also filled after device-row injection. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1146-L1177">speculative.cpp:1146-1177</a></td></tr>
+<tr><td>Target tap slots on Inkling 2 graphs</td><td><span class="b new">new</span></td><td>Visit-indexed residuals and the normalised final row. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2-loop.cpp#L83-L116">inkling2-loop.cpp:83-116</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2.cpp#L423-L427">inkling2.cpp:423-427</a></td></tr>
+<tr><td>Injection graph</td><td><span class="b chg">changed</span></td><td>Skips <code>fc</code>; four learned mixtures; separate context K/V weights. RoPE, rotation, cache routing and writes unchanged. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L329-L400">dflash.cpp:329-400</a></td></tr>
+<tr><td>Block backbone</td><td><span class="b chg">changed</span></td><td>Only the input embedding differs. Layers, attention and final norm are the stock code. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L414-L524">dflash.cpp:414-524</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L214-L234">dspark.cpp:214-234</a></td></tr>
+<tr><td>Recurrent step</td><td><span class="b chg">changed</span></td><td>Factored out of the stock Markov head and shared by both heads. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L236-L248">dspark.cpp:236-248</a></td></tr>
+<tr><td>Hidden-space correction, borrowed output head, vocabulary cut, softcap</td><td><span class="b new">new</span></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L250-L265">dspark.cpp:250-265</a></td></tr>
+<tr><td>In-graph argmax and ticket draw</td><td><span class="b new">new</span></td><td>Built from existing ggml operators. No new operator or kernel. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L416-L423">dspark.cpp:416-423</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L425-L460">dspark.cpp:425-460</a></td></tr>
+<tr><td>Loader: seven tensor names, head tensors, shape and layout checks</td><td><span class="b new">new</span></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L181-L203">dspark.cpp:181-203</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L55-L67">dflash.cpp:55-67</a></td></tr>
+<tr><td>Head-only ENCODE graph and its 3-row side-state width</td><td><span class="b new">new</span></td><td>Uses the existing ENCODE entry point and graph type. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L267-L281">dspark.cpp:267-281</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-batch.cpp#L1214-L1224">llama-batch.cpp:1214-1224</a></td></tr>
+<tr><td>Driver <code>common_speculative_impl_inkling2_dspark</code></td><td><span class="b new">new</span></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1531-L1553">speculative.cpp:1531-1553</a></td></tr>
+</tbody></table></div>
+
+<h3>Shared context changes</h3>
+<div class="grid two">
+<div class="card">
+<h4>Side state: existing mechanism, new width</h4>
+<p>Batches could already carry a per-row float vector ("side state"); MTP and LiliCorr use it. The PR adds one case to the width rule: a draft with the Inkling head takes 3 × n_embd floats. The in-graph path reads context, temperature and tickets from it; the ENCODE path reads state, hidden row and context. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-batch.cpp#L1214-L1224">llama-batch.cpp:1214-1224</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L462-L476">dspark.cpp:462-476</a></p>
+</div>
+<div class="card">
+<h4>Sampled outputs without a registered sampler</h4>
+<p>The context already had buffers and getters for token IDs and probabilities that a backend sampler chain selects. They were filled only when a chain was registered with <code>llama_set_sampler</code>. The PR lets the graph itself supply those tensors:</p>
+<ul class="tight">
+<li>decode recognises the Inkling block batch and validates its shape; <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2223-L2241">llama-context.cpp:2223-2241</a></li>
+<li>the ID buffer, and the probability buffer when sampling, are reserved without a chain, and the logits buffer is skipped; <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2642-L2802">llama-context.cpp:2642-2802</a></li>
+<li>the async copy runs for a chain <i>or</i> for this batch; <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2544-L2552">llama-context.cpp:2544-2552</a> · parent <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/llama-context.cpp#L2517-L2525">llama-context.cpp:2517-2525 (parent)</a></li>
+<li>the public getters wait once per decode instead of on every call. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L1150-L1155">llama-context.cpp:1150-1155</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L4798-L4808">llama-context.cpp:4798-4808</a> · parent <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/llama-context.cpp#L4759-L4763">llama-context.cpp:4759-4763 (parent)</a></li>
+</ul>
+<p>No new public function. The getters and their signatures are the existing ones. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/include/llama.h#L1234-L1239">llama.h:1234-1239</a></p>
+</div>
+</div>
+
+<div class="note"><b>Two things the PR does not contain.</b> The edit to <code>tests/test-backend-sampler.cpp</code> rewrites the stock logit-bias test to compare backend logits with a reference context; it does not touch or depend on the Inkling path. <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tests/test-backend-sampler.cpp#L864-L899">test-backend-sampler.cpp:864-899</a> And the commit changes no converter file: the 17 changed paths are under <code>common/</code>, <code>include/</code>, <code>src/</code> and <code>tests/</code>. Producing the sidecar GGUF is outside this commit.</div>
+
+<!-- ================================================================== -->
+<h2 id="why">7. Why the existing paths were not enough</h2>
+<div class="grid wide">
+<div class="card">
+<h4>Plain DFlash</h4>
+<ul class="tight">
+<li>It projects taps through one <code>fc</code> matrix and reuses each layer's token-side K and V weights. The Inkling sidecar has neither <code>fc</code> nor an encoder norm. It has four learned mixtures and separate context K/V weights.</li>
+<li>Its rows are picked independently. The Inkling head needs the previous <i>chosen</i> token and a state.</li>
+<li>It returns top-k 10 candidates, never a distribution the verifier can use.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L250-L266">dflash.cpp:250-266</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1318-L1398">speculative.cpp:1318-1398</a></p>
+</div>
+<div class="card">
+<h4>Stock DSpark</h4>
+<ul class="tight">
+<li><b>Shapes.</b> It expects <code>markov_w1</code> at tokenizer width, a <code>W2</code> that maps the latent straight to vocabulary logits, and a joint input of n_embd + 2 × rank. The sidecar stores <code>W1</code> at padded width, has no <code>W2</code>, maps the latent back to hidden space, and feeds 2 × n_embd + 2 × rank.</li>
+<li><b>Feedback.</b> Its chain feeds back <code>argmax</code> inside the graph, and its driver takes the top candidate. A sampled token never enters the chain, so any q read from it would be conditioned on the wrong prefix once a draw differs from the argmax.</li>
+<li><b>Block length.</b> It shortens the batch to the draft length. The Inkling block needs all eight rows.</li>
+</ul>
+<p class="src">parent <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/models/dspark.cpp#L80-L95">dspark.cpp:80-95 (parent)</a> <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/models/dspark.cpp#L91-L92">dspark.cpp:91-92 (parent)</a> <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/models/dspark.cpp#L237-L238">dspark.cpp:237-238 (parent)</a> <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/models/dspark.cpp#L297-L300">dspark.cpp:297-300 (parent)</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L80-L97">dspark.cpp:80-97</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1443-L1528">speculative.cpp:1443-1528</a></p>
+</div>
+<div class="card">
+<h4>A registered backend sampler alone</h4>
+<ul class="tight">
+<li>A registered chain is applied once to the graph's final logits tensor, after the model graph is built. It cannot sit between link i and link i + 1 of a recurrence, and the Inkling block graph publishes no logits tensor for it to read.</li>
+<li>The head needs the selected ID as a tensor for the next <code>W1</code> lookup. So the graph does the selection itself and writes into the same result slots a chain would fill.</li>
+<li>The driver turns the base class's backend chain off for this head.</li>
+<li>The predecessor report also found that a float32 cumulative sum over a 200058-wide row can leave the tail with zero-width bins while still reporting non-zero q for it. A draw whose reported q disagrees with its real probability breaks rejection sampling. That is why the PR draws on an integer grid. <span class="b unv">unverified</span> This page did not rerun that calculation.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-graph.cpp#L4702-L4745">llama-graph.cpp:4702-4745</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L478-L527">dspark.cpp:478-527</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1531-L1553">speculative.cpp:1531-1553</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2544-L2552">llama-context.cpp:2544-2552</a></p>
+</div>
+<div class="card">
+<h4>Host-only recurrence</h4>
+<ul class="tight">
+<li>It works, and it is still there as the opt-out (5g). It needs no context change at all.</li>
+<li>It costs one graph call, one wait and one 200058-wide logits copy per proposal, per round.</li>
+<li>The in-graph path replaces D + 1 calls with one and returns only IDs, plus q when sampling.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1664-L1716">speculative.cpp:1664-1716</a></p>
+</div>
+<div class="card">
+<h4>DFlash2 or LiliCorr style lattices</h4>
+<ul class="tight">
+<li>They precompute scores for k candidates per row and let the host walk them. That works because their heads score pairs of candidates.</li>
+<li>The Inkling head carries a 256-wide state through every step and corrects the hidden row itself. Its output for step i is not a function of a pair of candidates, and the sidecar has no selector or scorer weights.</li>
+</ul>
+<p class="src"><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash2.cpp#L118-L224">dflash2.cpp:118-224</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/lilicorr.cpp#L244-L280">lilicorr.cpp:244-280</a> <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L236-L248">dspark.cpp:236-248</a></p>
+</div>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="evidence">8. Evidence and open questions</h2>
+<div class="grid two">
+<div class="card">
+<h4><span class="b cpu">CPU</span> What earlier runs showed</h4>
+<p>The PR head equals the privately tested candidate patch plus the independent test-file edit: a diff of the two, ignoring index lines, shows only <code>tests/test-backend-sampler.cpp</code>. The runs used the ordinary server on CPU, an IQ4_NL Inkling 2 Mini target, and Q8_0 and BF16 sidecars.</p>
+<ul class="tight">
+<li>Greedy: both sidecars reproduced the target-only server's 32 output tokens.</li>
+<li>Sampled: an observer matched every q row bit for bit at the verifier and checked that non-argmax draws reached the next <code>W1</code> lookup (849 complete rows, 355 non-argmax feedback edges across the two main runs).</li>
+<li>Mixed greedy and sampled slots, different seeds and temperatures, repeated requests, depths 1 to 7 and the host opt-out passed.</li>
+<li>One scheduled graph per block, and only ID and q copies came back.</li>
+</ul>
+<p class="src">The results above come from earlier CPU runs.</p>
+</div>
+<div class="card">
+<h4><span class="b unv">unverified</span> What no run has covered</h4>
+<ul class="tight">
+<li><b>Accelerator placement.</b> The graph asks for the draft's output device for selection nodes the backend supports; the scheduler may still put any of them on CPU. Where they land on a GPU is unobserved.</li>
+<li><b>Accelerator correctness.</b> Ticket and q agreement, tie-breaking and real-weight feedback on a GPU.</li>
+<li><b>Speed.</b> Runtime and speedup for the in-graph path remain unmeasured. An earlier CPU probe measured 1.56 ms per proposal for host sampling and bookkeeping on the stepwise prototype.</li>
+<li><b>Numerical parity</b> with an independent runtime, end to end.</li>
+<li><b>The non-looped Inkling 2 target</b>, context shifts, saved and restored slots, and vision input. The ring has no serialisation; a slot whose ring lacks pos0 − 1 simply does not draft.</li>
+</ul>
+<h4 style="margin-top:.7rem">Read from source, not run</h4>
+<p>Every flow for the older drafters in sections 2 to 4 is a reading of the code at the head commit. Stock DSpark's DeepSeek and Mistral backbones are named but not traced.</p>
+</div>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="index">9. Source index</h2>
+<p>Every anchor on this page, grouped by file. A build script checked that the quoted code sits inside each line range at the stated commit.</p>
+<div class="tw"><table><thead><tr><th>File</th><th>Anchors</th></tr></thead><tbody>
+<tr><td><code>common/arg.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/arg.cpp#L4277-L4296">L4277-4296</a></td></tr>
+<tr><td><code>common/common.h</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/common.h#L176-L191">L176-191</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/common.h#L351-L353">L351-353</a></td></tr>
+<tr><td><code>common/ngram-cache.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/ngram-cache.cpp#L59-L63">L59-63</a></td></tr>
+<tr><td><code>common/ngram-map.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/ngram-map.cpp#L49-L94">L49-94</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/ngram-map.cpp#L382-L399">L382-399</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/ngram-map.cpp#L401-L500">L401-500</a></td></tr>
+<tr><td><code>common/sampling.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/sampling.cpp#L698-L730">L698-730</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/sampling.cpp#L741-L853">L741-853</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/sampling.cpp#L809-L823">L809-823</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/common/sampling.cpp#L809-L818">L809-818 (parent)</a></td></tr>
+<tr><td><code>common/speculative.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L33-L73">L33-73</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L75-L89">L75-89</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L111-L174">L111-174</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L309-L353">L309-353</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L355-L477">L355-477</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L485-L518">L485-518</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L588-L617">L588-617</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L657-L800">L657-800</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L802-L923">L802-923</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L925-L940">L925-940</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1016-L1035">L1016-1035</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1077-L1144">L1077-1144</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1146-L1177">L1146-1177</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1212-L1316">L1212-1316</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1318-L1398">L1318-1398</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1406-L1441">L1406-1441</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1443-L1528">L1443-1528</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1531-L1553">L1531-1553</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1555-L1563">L1555-1563</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1575-L1593">L1575-1593</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1594-L1610">L1594-1610</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1611-L1621">L1611-1621</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1622-L1654">L1622-1654</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1655-L1662">L1655-1662</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1664-L1716">L1664-1716</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1720-L1741">L1720-1741</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1752-L1878">L1752-1878</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1883-L1901">L1883-1901</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1903-L1982">L1903-1982</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L1999-L2005">L1999-2005</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2064-L2116">L2064-2116</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2158-L2303">L2158-2303</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2305-L2469">L2305-2469</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2471-L2491">L2471-2491</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2518-L2561">L2518-2561</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2563-L2615">L2563-2615</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2617-L2790">L2617-2790</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L2792-L2938">L2792-2938</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3041-L3074">L3041-3074</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3306-L3350">L3306-3350</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3386-L3392">L3386-3392</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3400-L3401">L3400-3401</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3403-L3417">L3403-3417</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3438-L3482">L3438-3482</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3630-L3718">L3630-3718</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/common/speculative.cpp#L3720-L3754">L3720-3754</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/common/speculative.cpp#L1143-L1145">L1143-1145 (parent)</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/common/speculative.cpp#L1665-L1680">L1665-1680 (parent)</a></td></tr>
+<tr><td><code>include/llama.h</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/include/llama.h#L232-L239">L232-239</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/include/llama.h#L1234-L1239">L1234-1239</a></td></tr>
+<tr><td><code>src/llama-batch.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-batch.cpp#L1214-L1224">L1214-1224</a></td></tr>
+<tr><td><code>src/llama-context.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L1150-L1155">L1150-1155</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2223-L2241">L2223-2241</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2544-L2552">L2544-2552</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L2642-L2802">L2642-2802</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-context.cpp#L4798-L4808">L4798-4808</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/llama-context.cpp#L2517-L2525">L2517-2525 (parent)</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/llama-context.cpp#L4759-L4763">L4759-4763 (parent)</a></td></tr>
+<tr><td><code>src/llama-graph.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-graph.cpp#L4702-L4745">L4702-4745</a></td></tr>
+<tr><td><code>src/llama-hparams.h</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-hparams.h#L564-L576">L564-576</a></td></tr>
+<tr><td><code>src/llama-kv-cache.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-kv-cache.cpp#L1750-L1754">L1750-1754</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-kv-cache.cpp#L1845-L1852">L1845-1852</a></td></tr>
+<tr><td><code>src/llama-model.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/llama-model.cpp#L3682-L3684">L3682-3684</a></td></tr>
+<tr><td><code>src/models/dflash.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L39-L49">L39-49</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L55-L67">L55-67</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L95-L100">L95-100</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L250-L266">L250-266</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L280-L290">L280-290</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L329-L400">L329-400</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L391-L395">L391-395</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L414-L524">L414-524</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L564-L575">L564-575</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash.cpp#L577-L602">L577-602</a></td></tr>
+<tr><td><code>src/models/dflash2.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dflash2.cpp#L118-L224">L118-224</a></td></tr>
+<tr><td><code>src/models/dspark.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L80-L97">L80-97</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L181-L203">L181-203</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L205-L212">L205-212</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L214-L234">L214-234</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L236-L248">L236-248</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L250-L265">L250-265</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L267-L281">L267-281</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L283-L414">L283-414</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L341-L342">L341-342</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L416-L423">L416-423</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L425-L460">L425-460</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L462-L476">L462-476</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L478-L527">L478-527</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L487-L524">L487-524</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/dspark.cpp#L529-L552">L529-552</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/models/dspark.cpp#L80-L95">L80-95 (parent)</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/models/dspark.cpp#L91-L92">L91-92 (parent)</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/models/dspark.cpp#L237-L238">L237-238 (parent)</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/e50c254a22c590c9d2a60db86690d48d42497e2b/src/models/dspark.cpp#L297-L300">L297-300 (parent)</a></td></tr>
+<tr><td><code>src/models/eagle3.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/eagle3.cpp#L121-L146">L121-146</a></td></tr>
+<tr><td><code>src/models/inkling2-loop.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2-loop.cpp#L83-L116">L83-116</a></td></tr>
+<tr><td><code>src/models/inkling2.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2.cpp#L423-L427">L423-427</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/inkling2.cpp#L455-L459">L455-459</a></td></tr>
+<tr><td><code>src/models/lilicorr.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/src/models/lilicorr.cpp#L244-L280">L244-280</a></td></tr>
+<tr><td><code>tests/test-backend-sampler.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tests/test-backend-sampler.cpp#L864-L899">L864-899</a></td></tr>
+<tr><td><code>tools/server/server-context.cpp</code></td><td><a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L71-L94">L71-94</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L580-L583">L580-583</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L3860-L3872">L3860-3872</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L3880-L3885">L3880-3885</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L3897-L3905">L3897-3905</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4708-L4723">L4708-4723</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4896-L4911">L4896-4911</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4915-L4949">L4915-4949</a> · <a href="https://github.com/ggml-org/llama.cpp/blob/0a9105de42d2c3e3cbc72cb1f398c743ada4f342/tools/server/server-context.cpp#L4956-L4990">L4956-4990</a></td></tr>
+</tbody></table></div>
+
+<footer>
+Built from a read-only checkout of the PR head. Self-contained: no scripts, no external fonts or requests. Line anchors pinned to <code>0a9105de42d2c3e3cbc72cb1f398c743ada4f342</code> and <code>e50c254a22c590c9d2a60db86690d48d42497e2b</code>.
+</footer>
+</main>
+</body>
+</html>
